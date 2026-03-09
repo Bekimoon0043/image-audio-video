@@ -1,7 +1,7 @@
 import os
 import tempfile
 import shutil
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request, BackgroundTasks
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from .processor import create_video
@@ -11,6 +11,14 @@ templates = Jinja2Templates(directory="app/templates")
 
 # Use a temporary directory for uploads (Render's /tmp is fine)
 UPLOAD_DIR = tempfile.mkdtemp()
+
+def cleanup_file(path: str):
+    """Delete a file if it exists (to be used as background task)."""
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass  # ignore cleanup errors
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -24,6 +32,7 @@ async def health():
 
 @app.post("/create-video")
 async def create_video_endpoint(
+    background_tasks: BackgroundTasks,
     image: UploadFile = File(...),
     audio: UploadFile = File(...)
 ):
@@ -51,17 +60,20 @@ async def create_video_endpoint(
         # Generate the video
         create_video(image_path, audio_path, output_path)
 
+        # Input files are no longer needed – delete them now
+        cleanup_file(image_path)
+        cleanup_file(audio_path)
+
+        # Schedule deletion of the output file after the response is sent
+        background_tasks.add_task(cleanup_file, output_path)
+
         # Return the video file
         return FileResponse(output_path, media_type="video/mp4", filename="output.mp4")
     except Exception as e:
+        # Clean up any files that might have been created
+        cleanup_file(image_path)
+        cleanup_file(audio_path)
+        cleanup_file(output_path)
         # Log the error (you might want to use proper logging)
         print(f"Error processing: {e}")
         raise HTTPException(500, f"Video creation failed: {str(e)}")
-    finally:
-        # Clean up temporary files
-        for path in [image_path, audio_path, output_path]:
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-            except Exception:
-                pass  # ignore cleanup errors
