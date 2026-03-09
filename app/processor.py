@@ -1,18 +1,17 @@
 import subprocess
-import os
 
 def create_video(image_path: str, audio_path: str, output_path: str):
     """
     Use FFmpeg to create a video from a static image and an audio track.
-    The video duration matches the audio length.
+    The video duration matches the audio length. Scales image to even dimensions.
     """
-    # Ensure FFmpeg is installed (it is in the Docker image)
     cmd = [
         "ffmpeg",
         "-y",                # overwrite output if exists
         "-loop", "1",        # loop the image
         "-i", image_path,
         "-i", audio_path,
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # ensure dimensions are even
         "-c:v", "libx264",
         "-tune", "stillimage",
         "-c:a", "aac",
